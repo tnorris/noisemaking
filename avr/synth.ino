@@ -13,38 +13,50 @@
     Tim Barrass 2012, CC by-nc-sa.
 */
 
-#define INPUT_PIN 0
-
 #include <MozziGuts.h>
 #include <Oscil.h> // oscillator template
 #include <tables/saw2048_int8.h> // sine table for oscillator
-#include <mozzi_midi.h>
+
+String inString = "        ";
+int inChar = 0;
 
 // use: Oscil <table_size, update_rate> oscilName (wavetable), look in .h file of table #included above
-Oscil <SAW2048_NUM_CELLS, AUDIO_RATE> aSaw(SAW2048_DATA);
+Oscil <SAW2048_NUM_CELLS, AUDIO_RATE> aSin(SAW2048_DATA);
 
 // use #define for CONTROL_RATE, not a constant
 #define CONTROL_RATE 64 // powers of 2 please
-
+int freq = 800;
 
 void setup(){
   startMozzi(CONTROL_RATE); // set a control rate of 64 (powers of 2 please)
-  aSaw.setFreq(440); // set the frequency
+  aSin.setFreq(440); // set the frequency
+  Serial.begin(9600);
 }
 
 
 void updateControl(){
-    aSaw.setFreq(mtof(mozziAnalogRead(INPUT_PIN)/4));
+  // Read serial input:
+  while (Serial.available() > 0) {
+    inChar = Serial.read();
+    if (isDigit(inChar)) {
+        inString += (char)inChar;
+    }
+    // if you get a newline, print the string,
+    // then the string's value:
+    if (inChar == '\n') {
+      freq = inString.toInt();
+      inString = "        ";
+    }
+  }
+
+  aSin.setFreq(freq);
 }
 
-
 int updateAudio(){
-  return aSaw.next(); // return an int signal centred around 0
+  return aSin.next(); // return an int signal centred around 0
 }
 
 
 void loop(){
   audioHook(); // required here
 }
-
-
