@@ -1,25 +1,51 @@
 #include <frequencyToNote.h>
 #include <LiquidCrystal.h>
-#include "MIDIUSB.h"  // arduino DUEs can do this, I think Leonardos can, too
+#include "MIDIUSB.h"  // Arduino DUEs can do this, I think Leonardos can, too
 #include "PitchToNote.h"
 
 /* @TODO: shift register */
+// moving to the next/prev note in the scale
 #define NOTE_UP_PIN   6
 #define NOTE_DOWN_PIN 5
 #define PLAY_PIN      4
+
+// moving around in the sequence
 #define MARK_PIN      3
 #define RUB_PIN       2
+
+// 10k pot that determines note sustain
 #define SUSTAIN_APIN  0
 
-/* LCD, dangerzone: you can't use Serial if you use pin 1 or pin 0 for GPIO */
+// 1 ova keyboard
+#define NOTE_C_PIN 53
+#define NOTE_CS_PIN 51
+#define NOTE_D_PIN 49
+#define NOTE_DS_PIN 47
+#define NOTE_E_PIN 45
+#define NOTE_F_PIN 43
+#define NOTE_FS_PIN 41
+#define NOTE_G_PIN 39
+#define NOTE_GS_PIN 37
+#define NOTE_A_PIN 35
+#define NOTE_AS_PIN 33
+#define NOTE_B_PIN 31
+int NOTE_PINS[] = { NOTE_C_PIN, NOTE_CS_PIN, NOTE_D_PIN, NOTE_DS_PIN, NOTE_E_PIN, NOTE_F_PIN, NOTE_FS_PIN, NOTE_G_PIN, NOTE_GS_PIN, NOTE_A_PIN, NOTE_AS_PIN, NOTE_B_PIN };
+
+// LCD pins
 #define MY_LCD_RS 8
 #define MY_LCD_E 9
-#define MY_LCD_D7 10
-#define MY_LCD_D6 11
-#define MY_LCD_D5 12
-#define MY_LCD_D4 13
+#define MY_LCD_D7 13
+#define MY_LCD_D6 12
+#define MY_LCD_D5 11
+#define MY_LCD_D4 10
 
 #define REFRESH_DELAY 30
+
+// Yoinked from http://forum.arduino.cc/index.php?topic=79326.0
+// Also note the limitations of tone() which at 16mhz specifies a minimum frequency of 31hz - in other words, notes below
+// B0 will play at the wrong frequency since the timer can't run that slowly!
+uint16_t midi_note_to_frequency[128] PROGMEM = { 8, 9, 9, 10, 10, 11, 12, 12, 13, 14, 15, 15, 16, 17, 18, 19, 21, 22, 23, 24, 26, 28, 29, 31, 33, 35, 37, 39, 41, 44, 46, 49, 52, 55, 58, 62, 65, 69, 73, 78, 82, 87, 92, 98, 104, 110, 117, 123, 131, 139, 147, 156, 165, 175, 185, 196, 208, 220, 233, 247, 262, 277, 294, 311, 330, 349, 370, 392, 415, 440, 466, 494, 523, 554, 587, 622, 659, 698, 740, 784, 831, 880, 932, 988, 1047, 1109, 1175, 1245, 1319, 1397, 1480, 1568, 1661, 1760, 1865, 1976, 2093, 2217, 2349, 2489, 2637, 2794, 2960, 3136, 3322, 3520, 3729, 3951, 4186, 4435, 4699, 4978, 5274, 5588, 5920, 5920, 6645, 7040, 7459, 7902, 8372, 8870, 9397, 9956, 10548, 11175, 11840, 12544 };
+
 
 // LiquidCrystal lcd(13, 12, 1, 2, 8, 11);
 
@@ -36,8 +62,11 @@ bool dirty_player = true;
 
 int analog_in = 0;
 
-int scale[] = { 0, pitchD3, pitchE3, pitchF3, pitchG3, pitchA3, pitchB3b, pitchC4, pitchD4 };
-int scale_max_size = 9;
+//int scale[] = { 0, pitchD3, pitchE3, pitchF3, pitchG3, pitchA3, pitchB3b, pitchC4, pitchD4 };
+//int scale_max_size = 9;
+
+int scale[] = { 0, pitchC3, pitchD3b, pitchD3, pitchE3b, pitchE3, pitchF3, pitchG3b, pitchG3, pitchA3b, pitchA3, pitchB3b, pitchB3 };
+int scale_max_size = 13;
 
 /* int sequence[] = {
 	pitchD3, pitchD4, pitchD5, pitchC3,
@@ -49,8 +78,8 @@ int last_note = 0;
 
 int sequence[] = {
 	5, 2, 3, 4,
-	1, 0, 3, 6,
-	0, 1, 2, 4,
+	1, 11, 3, 6,
+	11, 1, 2, 4,
 	3, 1, 3, 6
 };
 
@@ -69,18 +98,26 @@ int last_sequence[] = {
 
 int sequence_position = 0;
 int sequence_max = 8;
-int sequencer_pointer = 0;  // misnomer: not a pointer like you're thinking
-int last_sequencer_pointer = 0;  // misnomer: not a pointer like you're thinking
+int sequencer_pointer = 0;
+int last_sequencer_pointer = 0;
 int last_lcd_update = 0;
 
 int max_sustain = 1000;
 
+// 0 -> 10
+unsigned int volume = 0;
+
 #define PLAYMODE_MIDI 1
 #define PLAYMODE_DAC 2
+#define PLAYMODE_TTL 4
 #define PLAYMODE_DAC_PIN DAC0
 int playmode = PLAYMODE_MIDI;
 
+#define DEBUG_DAC_PIN DAC1
+
 bool playing = false;
+
+bool display_numbers = false;
 
 unsigned long last_button_press_in_millis = 0;
 unsigned long last_tone_play_in_millis = 0;
@@ -89,7 +126,7 @@ void verifyCheatcodes() {
 	lcd.setCursor(0, 1);
 	if (LOW == digitalRead(MARK_PIN)) {
 		sequence_max = 16;
-		lcd.print("BIG!");
+		lcd.print("WIDE");
 		delay(500);
 	}
 
@@ -106,9 +143,15 @@ void verifyCheatcodes() {
 		delay(500);
 	}
 
+	if (LOW == digitalRead(PLAY_PIN)) {
+		lcd.print("NUM!");
+		display_numbers = true;
+		delay(500);
+	}
+
 	if (LOW == digitalRead(NOTE_DOWN_PIN)) {
-		playmode = PLAYMODE_DAC;
-		lcd.print("DAC0");
+		playmode = PLAYMODE_TTL;
+		lcd.print("TTL!");
 		delay(500);
 	}
 }
@@ -116,6 +159,7 @@ void verifyCheatcodes() {
 void setup() {
 	lcd.begin(16, 2);
 	lcd.print("Good morning!");
+	delay(500);
 
 	pinMode(NOTE_DOWN_PIN, INPUT_PULLUP);
 	pinMode(NOTE_UP_PIN, INPUT_PULLUP);
@@ -125,12 +169,21 @@ void setup() {
 
 	pinMode(LED_BUILTIN, OUTPUT);
 
+	for (int i = 0; i < 12; i++) {
+		pinMode(NOTE_PINS[i], INPUT_PULLUP);
+	}
+
 	last_button_press_in_millis = millis();
 	last_tone_play_in_millis = millis();
-  
+
+	volume = 10;
+
+	Serial.begin(9600);
+
 	/* cheatcodes, bruh */
 	verifyCheatcodes();
 	lcd.clear();
+	analogWrite(DEBUG_DAC_PIN, 1023);
 }
 
 // https://github.com/arduino-libraries/MIDIUSB/blob/master/examples/MIDIUSB_write/MIDIUSB_write.ino#L11
@@ -146,7 +199,7 @@ void noteOn(byte channel, byte pitch, byte velocity) {
 	MidiUSB.sendMIDI(noteOn);
 	MidiUSB.flush();
 
-	digitalWrite(LED_BUILTIN, HIGH);
+
 }
 
 void noteOff(byte channel, byte pitch, byte velocity) {
@@ -156,7 +209,7 @@ void noteOff(byte channel, byte pitch, byte velocity) {
 	MidiUSB.sendMIDI(noteOff);
 	MidiUSB.flush();
 
-	digitalWrite(LED_BUILTIN, LOW);
+
 }
 
 void makeNoise() {
@@ -170,6 +223,7 @@ void makeNoise() {
 		case PLAYMODE_DAC:
 			analogWrite(PLAYMODE_DAC_PIN, 0);
 			break;
+		
 		default:;
 		}
 
@@ -184,6 +238,12 @@ void makeNoise() {
 		case PLAYMODE_DAC:
 			analogWrite(PLAYMODE_DAC_PIN, map(scale[sequence[sequence_position]], 0, 127, 0, 255));
 			break;
+		case PLAYMODE_TTL:
+			Serial.print(midi_note_to_frequency[scale[sequence[sequence_position]]]);
+			Serial.print('\n');
+			delay(2);
+			break;
+
 		default:;
 		}
 
@@ -192,6 +252,17 @@ void makeNoise() {
 		dirty_player = true;
 		last_tone_play_in_millis = millis();
 	}
+}
+
+void shiftSequencerPointer(int direction) {
+	sequencer_pointer = (sequencer_pointer + direction) % sequence_max;
+	if (0 > sequencer_pointer) { 
+		sequencer_pointer = sequence_max - 1; 
+	} else if (sequence_max == sequencer_pointer) { 
+		sequencer_pointer = 0;
+	}
+
+	dirty_editor = true;
 }
 
 static void readKeys() {
@@ -209,15 +280,19 @@ static void readKeys() {
 	}
 
 	if (LOW == digitalRead(NOTE_DOWN_PIN)) {
-		if (0 == sequencer_pointer) { sequencer_pointer = sequence_max; }
-		sequencer_pointer = (sequencer_pointer - 1) % sequence_max;
-		dirty_editor = true;
+		shiftSequencerPointer(-1);
 	}
 
 	if (LOW == digitalRead(NOTE_UP_PIN)) {
-		if (sequence_max == sequencer_pointer) { sequencer_pointer = 0; }
-		sequencer_pointer = (sequencer_pointer + 1) % sequence_max;
-		dirty_editor = true;
+		shiftSequencerPointer(1);
+	}
+
+	for (int i = 0; i < 12; i++) {
+		if (LOW == digitalRead(NOTE_PINS[i])) {
+			sequence[sequencer_pointer] = i + 1;
+			digitalWrite(LED_BUILTIN, HIGH);
+			shiftSequencerPointer(1);
+		}
 	}
 
 	sustain = map(analogRead(SUSTAIN_APIN), 0, 1023, max_sustain, 40);
@@ -243,16 +318,16 @@ void drawEditor() {
 	drawSequence(0, 0, sequencer_pointer, sequence_max);
 	lcd.setCursor(0, 1);
 	lcd.print(sequence[sequencer_pointer]);
-	lcd.print("  ");
+	lcd.print("    ");
 }
 
 void drawPlayer() {
 	lcd.setCursor(4, 1);
 	lcd.print(sequence[sequence_position]);
+	lcd.print("  ");
 	drawSequence(8, 1, sequence_position % 8, 8);
 }
 
-/* update the screen */
 void updateScreen() {
 	if (millis() < last_lcd_update + REFRESH_DELAY) {
 		return;
@@ -273,7 +348,12 @@ void updateScreen() {
 void drawSequence(int x, int y, int dot_pos, int length) {
 	lcd.setCursor(x, y);
 	for (int i = 0; i < length; i++) {
-		lcd.write(byte(0xff));
+		if (display_numbers) {
+			lcd.print(sequence[i]);
+		}
+		else {
+			lcd.write(byte(0xff));
+		}
 	}
 	lcd.setCursor(x + dot_pos, y);
 	lcd.write(byte(0b10100101));
