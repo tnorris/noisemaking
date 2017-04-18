@@ -11,12 +11,15 @@
     https://groups.google.com/forum/#!forum/mozzi-users
   
     Tim Barrass 2012, CC by-nc-sa.
+    
+    hacked up by Tom Norris
 */
 
 #include <MozziGuts.h>
 #include <Oscil.h> // oscillator template
 #include <tables/saw2048_int8.h> // sine table for oscillator
 
+bool playing = false;
 String inString = "        ";
 int inChar = 0;
 
@@ -27,14 +30,25 @@ Oscil <SAW2048_NUM_CELLS, AUDIO_RATE> aSin(SAW2048_DATA);
 #define CONTROL_RATE 64 // powers of 2 please
 int freq = 800;
 
+int STOP_PIN = 7;
+
 void setup(){
   startMozzi(CONTROL_RATE); // set a control rate of 64 (powers of 2 please)
   aSin.setFreq(440); // set the frequency
+  pinMode(STOP_PIN, INPUT_PULLUP);
   Serial.begin(9600);
 }
 
 
 void updateControl(){
+  static int previous;
+  int current = digitalRead(STOP_PIN);
+  if(previous==LOW && current==HIGH){
+    pauseMozzi();
+  } else if(previous==HIGH && current==LOW){
+    unPauseMozzi();
+  }
+  previous=current;
   // Read serial input:
   while (Serial.available() > 0) {
     inChar = Serial.read();
