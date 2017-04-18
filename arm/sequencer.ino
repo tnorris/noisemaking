@@ -55,7 +55,6 @@ LiquidCrystal lcd(MY_LCD_RS, MY_LCD_E,
 #define DEBOUNCE_DELAY 150
 
 unsigned int sustain = 50;
-unsigned int last_sustain = 1;
 
 bool dirty_editor = true;
 bool dirty_player = true;
@@ -66,7 +65,7 @@ int analog_in = 0;
 //int scale_max_size = 9;
 
 int scale[] = { 0, pitchC3, pitchD3b, pitchD3, pitchE3b, pitchE3, pitchF3, pitchG3b, pitchG3, pitchA3b, pitchA3, pitchB3b, pitchB3,
-                   pitchC4, pitchD4b, pitchD4, pitchE4b, pitchE4, pitchF4, pitchG4b, pitchG4, pitchA4b, pitchA4, pitchB4b, pitchB4 };
+				pitchC4, pitchD4b, pitchD4, pitchE4b, pitchE4, pitchF4, pitchG4b, pitchG4, pitchA4b, pitchA4, pitchB4b, pitchB4 };
 int scale_max_size = 13;
 int scale_offset = 0;
 
@@ -80,11 +79,12 @@ typedef struct {
 	int notes[16];
 } Sequencer;
 
-Sequencer s = { 0, 8 , 0 ,0, {
-	5, 2, 3, 4,
-	1, 11, 3, 6,
-	11, 1, 2, 4,
-	3, 1, 3, 6}};
+Sequencer s = { 0, 8, 0, 0,
+				{ 5, 2, 3, 4,
+				  1, 11, 3, 6,
+				  11, 1, 2, 4,
+				  3, 1, 3, 6 }
+};
 
 typedef struct {
 	bool shifty_octaves;
@@ -203,8 +203,6 @@ void noteOn(byte channel, byte pitch, byte velocity) {
 	midiEventPacket_t noteOn = { 0x09, 0x90 | channel, pitch, velocity };
 	MidiUSB.sendMIDI(noteOn);
 	MidiUSB.flush();
-
-
 }
 
 void noteOff(byte channel, byte pitch, byte velocity) {
@@ -213,8 +211,6 @@ void noteOff(byte channel, byte pitch, byte velocity) {
 	midiEventPacket_t noteOff = { 0x08, 0x80 | channel, pitch, velocity };
 	MidiUSB.sendMIDI(noteOff);
 	MidiUSB.flush();
-
-
 }
 
 void makeNoise() {
@@ -228,7 +224,7 @@ void makeNoise() {
 		case PLAYMODE_DAC:
 			analogWrite(PLAYMODE_DAC_PIN, 0);
 			break;
-		
+
 		default:;
 		}
 
@@ -248,7 +244,6 @@ void makeNoise() {
 			Serial.print('\n');
 			delay(2);
 			break;
-
 		default:;
 		}
 
@@ -261,9 +256,9 @@ void makeNoise() {
 
 void shiftSequencerPosition(int direction) {
 	s.position = (s.position + direction) % s.max;
-	if (0 > s.position) { 
-		s.position = s.max - 1; 
-	} else if (s.max == s.position) { 
+	if (0 > s.position) {
+		s.position = s.max - 1;
+	} else if (s.max == s.position) {
 		s.position = 0;
 	}
 
@@ -295,7 +290,7 @@ static void readKeys() {
 	if (LOW == digitalRead(NOTE_DOWN_PIN)) {
 		shiftSequencerPosition(-1);
 	}
-	
+
 	if (LOW == digitalRead(NOTE_UP_PIN)) {
 		shiftSequencerPosition(1);
 	}
@@ -335,10 +330,48 @@ void drawEditor() {
 }
 
 void drawPlayer() {
+	int bpm = 60000 / sustain;
 	lcd.setCursor(4, 1);
 	if (config.show_bpm) {
-		lcd.print((60000/sustain));
-	} else {
+		switch (bpm) {
+		case 60:
+			lcd.print("YAWN");
+			break;;
+		case 80:
+			lcd.print("YAZZ");
+			break;;
+		case 112:
+			lcd.print("JAZZ");
+			break;;
+		case 120:
+			lcd.print("DUB!");
+			break;;
+		case 130:
+			lcd.print("OOHN");
+			break;
+		case 140:
+			lcd.print("TISS");
+			break;;
+		case 150:
+			lcd.print("DNB!");
+			break;;
+		case 180:
+			lcd.print("PSY!");
+			break;;
+		case 300:
+			lcd.print("DDR!");
+			break;;
+		case 340:
+			lcd.print("GABR");
+			break;;
+		case 1500:
+			lcd.print("ARP!");
+			break;;
+		default:
+			lcd.print(bpm);
+		}
+	}
+	else {
 		lcd.print(s.notes[s.play_position]);
 	}
 	lcd.print("  ");
