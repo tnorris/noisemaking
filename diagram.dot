@@ -1,0 +1,42 @@
+digraph noisemaking {
+  node [fontname = "helvetica"];
+  edge [fontname = "helvetica"];
+  graph [pad="1", ranksep="1", fontname="helvetica"];
+
+  subgraph cluster_0 {
+    graph[style=solid];
+    label = "Sequencer";
+
+    K [ label = "Keyboard Octave Buttons"];
+    PP [ label = "LCD Control Buttons"];
+    LCD [ label = "LCD"];
+    DUE [ label = "Arduino Due" ];
+
+    K->DUE;
+    PP->DUE;
+    DUE -> LCD;
+  }
+
+  subgraph cluster_1 {
+    graph[style=solid];
+    label = "Oscillator";
+
+    UNO [ label = "Arduino Uno*" ];
+  }
+
+  subgraph cluster_2 {
+    graph[style=solid];
+    label = "Recording Device (a computer)";
+    PC [ label = "1/8th inch jack on a computer" ]
+    PC_MIDI [ label = "USB*" ]
+    DAW [ label = "Ableton Live (or whatever)"]
+  }
+
+  splat [label = "*No TTL and MIDI at the same time\n... yet"]
+
+
+  DUE -> UNO [label = "Hand rolled proto:\n\"<frequency>\\n\" over TTL"];
+  UNO -> PC [label = "(A wicked sketch)\nTRS cable"];
+  DUE -> PC_MIDI -> DAW [ label = "Actual MIDI!"];
+
+}
