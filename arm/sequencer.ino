@@ -86,7 +86,12 @@ Sequencer s = { 0, 8 , 0 ,0, {
 	11, 1, 2, 4,
 	3, 1, 3, 6}};
 
+typedef struct {
+	bool shifty_octaves;
+	bool show_bpm;
+} CheatCodeFlags;
 
+CheatCodeFlags config = { false, false };
 
 int last_lcd_update = 0;
 
@@ -111,7 +116,7 @@ unsigned long last_button_press_in_millis = 0;
 unsigned long last_tone_play_in_millis = 0;
 
 void verifyCheatcodes() {
-	lcd.setCursor(0, 1);
+	lcd.setCursor(0, 0);
 	if (LOW == digitalRead(MARK_PIN)) {
 		s.max = 16;
 		lcd.print("WIDE");
@@ -137,9 +142,22 @@ void verifyCheatcodes() {
 		delay(500);
 	}
 
-	if (LOW == digitalRead(NOTE_DOWN_PIN)) {
+	lcd.setCursor(0, 1);
+	if (LOW == digitalRead(NOTE_D_PIN)) {
 		playmode = PLAYMODE_TTL;
 		lcd.print("TTL!");
+		delay(500);
+	}
+
+	if (LOW == digitalRead(NOTE_C_PIN)) {
+		config.shifty_octaves = true;
+		lcd.print("SHFT");
+		delay(500);
+	}
+
+	if (LOW == digitalRead(NOTE_E_PIN)) {
+		config.show_bpm = true;
+		lcd.print("BPM!");
 		delay(500);
 	}
 }
@@ -223,10 +241,10 @@ void makeNoise() {
 			noteOn(0, scale[s.notes[s.play_position]], 64);
 			break;
 		case PLAYMODE_DAC:
-			analogWrite(PLAYMODE_DAC_PIN, map(scale[s.notes[s.play_position] + scale_offset], 0, 127, 0, 255));
+			analogWrite(PLAYMODE_DAC_PIN, map(scale[s.notes[s.play_position]], 0, 127, 0, 255));
 			break;
 		case PLAYMODE_TTL:
-			Serial.print(midi_note_to_frequency[scale[s.notes[s.play_position] + scale_offset]]);
+			Serial.print(midi_note_to_frequency[scale[s.notes[s.play_position]]]);
 			Serial.print('\n');
 			delay(2);
 			break;
@@ -256,10 +274,18 @@ static void readKeys() {
 	if (millis() < last_button_press_in_millis + DEBOUNCE_DELAY) { return; }
 
 	if (LOW == digitalRead(MARK_PIN)) {
-		s.notes[s.position] = s.notes[s.position] - 1;
-		if (s.notes[s.position] < 0) { s.notes[s.position] = scale_max_size - 1; }
-		dirty_editor = true;
+		if (config.shifty_octaves) {
+			scale_offset = 12;
+		} else {
+			s.notes[s.position] = s.notes[s.position] - 1;
+			if (s.notes[s.position] < 0) { s.notes[s.position] = scale_max_size - 1; }
+			dirty_editor = true;
+		}
 	}
+	else {
+		if (config.shifty_octaves) scale_offset = 0;
+	}
+
 	if (LOW == digitalRead(RUB_PIN)) {
 		s.notes[s.position] = s.notes[s.position] + 1;
 		if (s.notes[s.position] >= scale_max_size) { s.notes[s.position] = 0; }
@@ -310,7 +336,11 @@ void drawEditor() {
 
 void drawPlayer() {
 	lcd.setCursor(4, 1);
-	lcd.print(s.notes[s.play_position]);
+	if (config.show_bpm) {
+		lcd.print((60000/sustain));
+	} else {
+		lcd.print(s.notes[s.play_position]);
+	}
 	lcd.print("  ");
 	drawSequence(8, 1, s.play_position % 8, 8);
 }
