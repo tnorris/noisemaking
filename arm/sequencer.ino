@@ -65,41 +65,29 @@ int analog_in = 0;
 //int scale[] = { 0, pitchD3, pitchE3, pitchF3, pitchG3, pitchA3, pitchB3b, pitchC4, pitchD4 };
 //int scale_max_size = 9;
 
-int scale[] = { 0, pitchC3, pitchD3b, pitchD3, pitchE3b, pitchE3, pitchF3, pitchG3b, pitchG3, pitchA3b, pitchA3, pitchB3b, pitchB3 };
+int scale[] = { 0, pitchC3, pitchD3b, pitchD3, pitchE3b, pitchE3, pitchF3, pitchG3b, pitchG3, pitchA3b, pitchA3, pitchB3b, pitchB3,
+                   pitchC4, pitchD4b, pitchD4, pitchE4b, pitchE4, pitchF4, pitchG4b, pitchG4, pitchA4b, pitchA4, pitchB4b, pitchB4 };
 int scale_max_size = 13;
-
-/* int sequence[] = {
-	pitchD3, pitchD4, pitchD5, pitchC3,
-	pitchC4, pitchC5, pitchC4, pitchD4
-}; */
+int scale_offset = 0;
 
 int last_note = 0;
 
+typedef struct {
+	int play_position;
+	int max;
+	int position;
+	int last_position;
+	int notes[16];
+} Sequencer;
 
-int sequence[] = {
+Sequencer s = { 0, 8 , 0 ,0, {
 	5, 2, 3, 4,
 	1, 11, 3, 6,
 	11, 1, 2, 4,
-	3, 1, 3, 6
-};
+	3, 1, 3, 6}};
 
-/*
-int sequence[] = {
-	0, 0, 0, 0,
-	0, 0, 0, 6,
-	0, 1, 2, 4,
-	3, 1, 3, 6
-}; */
 
-int last_sequence[] = {
-	1, 1, 3, 1,
-	1, 1, 3, 6
-};
 
-int sequence_position = 0;
-int sequence_max = 8;
-int sequencer_pointer = 0;
-int last_sequencer_pointer = 0;
 int last_lcd_update = 0;
 
 int max_sustain = 1000;
@@ -125,7 +113,7 @@ unsigned long last_tone_play_in_millis = 0;
 void verifyCheatcodes() {
 	lcd.setCursor(0, 1);
 	if (LOW == digitalRead(MARK_PIN)) {
-		sequence_max = 16;
+		s.max = 16;
 		lcd.print("WIDE");
 		delay(500);
 	}
@@ -192,7 +180,6 @@ void setup() {
 // Channel can be anything between 0-15. Typically reported to the user as 1-16.
 // Third parameter is the note number (48 = middle C).
 // Fourth parameter is the velocity (64 = normal, 127 = fastest).
-
 void noteOn(byte channel, byte pitch, byte velocity) {
 	if (2 > pitch) { return; }
 	midiEventPacket_t noteOn = { 0x09, 0x90 | channel, pitch, velocity };
@@ -227,19 +214,19 @@ void makeNoise() {
 		default:;
 		}
 
-		sequence_position = ++sequence_position % sequence_max;
+		s.play_position = ++s.play_position % s.max;
 		delay(4);
 
 		switch (playmode) {
 		case PLAYMODE_MIDI:
 			// midi on the next note
-			noteOn(0, scale[sequence[sequence_position]], 64);
+			noteOn(0, scale[s.notes[s.play_position]], 64);
 			break;
 		case PLAYMODE_DAC:
-			analogWrite(PLAYMODE_DAC_PIN, map(scale[sequence[sequence_position]], 0, 127, 0, 255));
+			analogWrite(PLAYMODE_DAC_PIN, map(scale[s.notes[s.play_position] + scale_offset], 0, 127, 0, 255));
 			break;
 		case PLAYMODE_TTL:
-			Serial.print(midi_note_to_frequency[scale[sequence[sequence_position]]]);
+			Serial.print(midi_note_to_frequency[scale[s.notes[s.play_position] + scale_offset]]);
 			Serial.print('\n');
 			delay(2);
 			break;
@@ -248,18 +235,18 @@ void makeNoise() {
 		}
 
 
-		last_note = scale[sequence[sequence_position]];
+		last_note = scale[s.notes[s.play_position]];
 		dirty_player = true;
 		last_tone_play_in_millis = millis();
 	}
 }
 
-void shiftSequencerPointer(int direction) {
-	sequencer_pointer = (sequencer_pointer + direction) % sequence_max;
-	if (0 > sequencer_pointer) { 
-		sequencer_pointer = sequence_max - 1; 
-	} else if (sequence_max == sequencer_pointer) { 
-		sequencer_pointer = 0;
+void shiftSequencerPosition(int direction) {
+	s.position = (s.position + direction) % s.max;
+	if (0 > s.position) { 
+		s.position = s.max - 1; 
+	} else if (s.max == s.position) { 
+		s.position = 0;
 	}
 
 	dirty_editor = true;
@@ -269,29 +256,29 @@ static void readKeys() {
 	if (millis() < last_button_press_in_millis + DEBOUNCE_DELAY) { return; }
 
 	if (LOW == digitalRead(MARK_PIN)) {
-		sequence[sequencer_pointer] = sequence[sequencer_pointer] - 1;
-		if (sequence[sequencer_pointer] < 0) { sequence[sequencer_pointer] = scale_max_size - 1; }
+		s.notes[s.position] = s.notes[s.position] - 1;
+		if (s.notes[s.position] < 0) { s.notes[s.position] = scale_max_size - 1; }
 		dirty_editor = true;
 	}
 	if (LOW == digitalRead(RUB_PIN)) {
-		sequence[sequencer_pointer] = sequence[sequencer_pointer] + 1;
-		if (sequence[sequencer_pointer] >= scale_max_size) { sequence[sequencer_pointer] = 0; }
+		s.notes[s.position] = s.notes[s.position] + 1;
+		if (s.notes[s.position] >= scale_max_size) { s.notes[s.position] = 0; }
 		dirty_editor = true;
 	}
 
 	if (LOW == digitalRead(NOTE_DOWN_PIN)) {
-		shiftSequencerPointer(-1);
+		shiftSequencerPosition(-1);
 	}
-
+	
 	if (LOW == digitalRead(NOTE_UP_PIN)) {
-		shiftSequencerPointer(1);
+		shiftSequencerPosition(1);
 	}
 
 	for (int i = 0; i < 12; i++) {
 		if (LOW == digitalRead(NOTE_PINS[i])) {
-			sequence[sequencer_pointer] = i + 1;
+			s.notes[s.position] = i + 1 + scale_offset;
 			digitalWrite(LED_BUILTIN, HIGH);
-			shiftSequencerPointer(1);
+			shiftSequencerPosition(1);
 		}
 	}
 
@@ -315,17 +302,17 @@ static void readKeys() {
 
 void drawEditor() {
 	lcd.setCursor(0, 0);
-	drawSequence(0, 0, sequencer_pointer, sequence_max);
+	drawSequence(0, 0, s.position, s.max);
 	lcd.setCursor(0, 1);
-	lcd.print(sequence[sequencer_pointer]);
+	lcd.print(s.notes[s.position]);
 	lcd.print("    ");
 }
 
 void drawPlayer() {
 	lcd.setCursor(4, 1);
-	lcd.print(sequence[sequence_position]);
+	lcd.print(s.notes[s.play_position]);
 	lcd.print("  ");
-	drawSequence(8, 1, sequence_position % 8, 8);
+	drawSequence(8, 1, s.play_position % 8, 8);
 }
 
 void updateScreen() {
@@ -349,7 +336,7 @@ void drawSequence(int x, int y, int dot_pos, int length) {
 	lcd.setCursor(x, y);
 	for (int i = 0; i < length; i++) {
 		if (display_numbers) {
-			lcd.print(sequence[i]);
+			lcd.print(s.notes[i]);
 		}
 		else {
 			lcd.write(byte(0xff));
