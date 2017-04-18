@@ -1,19 +1,11 @@
-/*  Example playing a sinewave at a set frequency,
+/*
+This file owes much of it's life to 
+Tim Barrass 2012, CC by-nc-sa.
+Example playing a sinewave at a set frequency,
     using Mozzi sonification library.
-  
-    Demonstrates the use of Oscil to play a wavetable.
-  
-    Circuit: Audio output on digital pin 9 on a Uno or similar, or
-    DAC/A14 on Teensy 3.1, or 
-    check the README or http://sensorium.github.com/Mozzi/
-  
-    Mozzi help/discussion/announcements:
-    https://groups.google.com/forum/#!forum/mozzi-users
-  
-    Tim Barrass 2012, CC by-nc-sa.
-    
-    hacked up by Tom Norris
-*/
+
+Hacked up by Tom Norris
+ */
 
 #include <MozziGuts.h>
 #include <Oscil.h> // oscillator template
@@ -24,7 +16,7 @@ String inString = "        ";
 int inChar = 0;
 
 // use: Oscil <table_size, update_rate> oscilName (wavetable), look in .h file of table #included above
-Oscil <SAW2048_NUM_CELLS, AUDIO_RATE> aSin(SAW2048_DATA);
+Oscil <SAW2048_NUM_CELLS, AUDIO_RATE> aOsc(SAW2048_DATA);
 
 // use #define for CONTROL_RATE, not a constant
 #define CONTROL_RATE 64 // powers of 2 please
@@ -34,11 +26,10 @@ int STOP_PIN = 7;
 
 void setup(){
   startMozzi(CONTROL_RATE); // set a control rate of 64 (powers of 2 please)
-  aSin.setFreq(440); // set the frequency
+  aOsc.setFreq(440); // set the frequency
   pinMode(STOP_PIN, INPUT_PULLUP);
   Serial.begin(9600);
 }
-
 
 void updateControl(){
   static int previous;
@@ -49,28 +40,39 @@ void updateControl(){
     unPauseMozzi();
   }
   previous=current;
+
   // Read serial input:
   while (Serial.available() > 0) {
     inChar = Serial.read();
     if (isDigit(inChar)) {
-        inString += (char)inChar;
+      inString += (char)inChar;
     }
     // if you get a newline, print the string,
     // then the string's value:
-    if (inChar == '\n') {
-      freq = inString.toInt();
-      inString = "        ";
+    switch(inChar) {
+      case '\n':
+        freq = inString.toInt();
+        inString = "        ";
+        break;
+      case 'S':
+        // load the sine wave
+        break;
+      case 'N':
+        // load the saw wave
+        break;
+      case 'L':
+        // load the square wave
     }
   }
 
-  aSin.setFreq(freq);
+  aOsc.setFreq(freq);
 }
 
 int updateAudio(){
-  return aSin.next(); // return an int signal centred around 0
+  return aOsc.next(); // return an int signal centred around 0
 }
 
 
 void loop(){
-  audioHook(); // required here
+  audioHook();
 }

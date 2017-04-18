@@ -46,9 +46,6 @@ int NOTE_PINS[] = { NOTE_C_PIN, NOTE_CS_PIN, NOTE_D_PIN, NOTE_DS_PIN, NOTE_E_PIN
 // B0 will play at the wrong frequency since the timer can't run that slowly!
 uint16_t midi_note_to_frequency[128] PROGMEM = { 8, 9, 9, 10, 10, 11, 12, 12, 13, 14, 15, 15, 16, 17, 18, 19, 21, 22, 23, 24, 26, 28, 29, 31, 33, 35, 37, 39, 41, 44, 46, 49, 52, 55, 58, 62, 65, 69, 73, 78, 82, 87, 92, 98, 104, 110, 117, 123, 131, 139, 147, 156, 165, 175, 185, 196, 208, 220, 233, 247, 262, 277, 294, 311, 330, 349, 370, 392, 415, 440, 466, 494, 523, 554, 587, 622, 659, 698, 740, 784, 831, 880, 932, 988, 1047, 1109, 1175, 1245, 1319, 1397, 1480, 1568, 1661, 1760, 1865, 1976, 2093, 2217, 2349, 2489, 2637, 2794, 2960, 3136, 3322, 3520, 3729, 3951, 4186, 4435, 4699, 4978, 5274, 5588, 5920, 5920, 6645, 7040, 7459, 7902, 8372, 8870, 9397, 9956, 10548, 11175, 11840, 12544 };
 
-
-// LiquidCrystal lcd(13, 12, 1, 2, 8, 11);
-
 LiquidCrystal lcd(MY_LCD_RS, MY_LCD_E,
     MY_LCD_D4, MY_LCD_D5, MY_LCD_D6, MY_LCD_D7);
 
@@ -265,6 +262,16 @@ void shiftSequencerPosition(int direction) {
     dirty_editor = true;
 }
 
+void shiftSequenceNote(int direction) {
+  s.notes[s.position] = s.notes[s.position] + direction;
+  if (s.notes[s.position] < 0) {
+    s.notes[s.position] = scale_max_size + direction;
+  } else if (s.notes[s.position] >= scale_max_size) { 
+    s.notes[s.position] = 0;
+  }
+  dirty_editor = true;
+}
+
 static void readKeys() {
     if (millis() < last_button_press_in_millis + DEBOUNCE_DELAY) { return; }
 
@@ -272,9 +279,7 @@ static void readKeys() {
         if (config.shifty_octaves) {
             scale_offset = 12;
         } else {
-            s.notes[s.position] = s.notes[s.position] - 1;
-            if (s.notes[s.position] < 0) { s.notes[s.position] = scale_max_size - 1; }
-            dirty_editor = true;
+            shiftSequenceNote(-1);
         }
     }
     else {
@@ -282,9 +287,7 @@ static void readKeys() {
     }
 
     if (LOW == digitalRead(RUB_PIN)) {
-        s.notes[s.position] = s.notes[s.position] + 1;
-        if (s.notes[s.position] >= scale_max_size) { s.notes[s.position] = 0; }
-        dirty_editor = true;
+        shiftSequenceNote(1);
     }
 
     if (LOW == digitalRead(NOTE_DOWN_PIN)) {
