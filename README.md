@@ -12,7 +12,7 @@ Aka documented toe stubbing.
 ### There's a high pitched whine coming from the ARM
 - Add a Logic Level Converter - Bi-Directional <https://www.sparkfun.com/products/12009> to the serial bus. AVR speaks 5v, ARM speaks 3.3v
 
-### Cheat Codes
+# Cheat Codes
 When booting, hold down key chords to enter cheat codes:
 - Mark: `WIDE` Doubles the amount of notes in the sequencer
 - Rub: `SSH!` Sends MIDI All Off
