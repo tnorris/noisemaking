@@ -39,6 +39,13 @@ int NOTE_PINS[] = { NOTE_C_PIN, NOTE_CS_PIN, NOTE_D_PIN, NOTE_DS_PIN, NOTE_E_PIN
 #define MY_LCD_D5 11
 #define MY_LCD_D4 10
 
+#define MODE_LED_A 52
+#define MODE_LED_B 50
+#define MODE_LED_C 48
+#define MODE_LED_D 46
+#define MODE_LED_E 44
+int LED_PINS[] = { MODE_LED_A, MODE_LED_B, MODE_LED_C, MODE_LED_D, MODE_LED_E };
+
 #define REFRESH_DELAY 30
 
 // Yoinked from http://forum.arduino.cc/index.php?topic=79326.0
@@ -46,12 +53,15 @@ int NOTE_PINS[] = { NOTE_C_PIN, NOTE_CS_PIN, NOTE_D_PIN, NOTE_DS_PIN, NOTE_E_PIN
 // B0 will play at the wrong frequency since the timer can't run that slowly!
 uint16_t midi_note_to_frequency[128] PROGMEM = { 8, 9, 9, 10, 10, 11, 12, 12, 13, 14, 15, 15, 16, 17, 18, 19, 21, 22, 23, 24, 26, 28, 29, 31, 33, 35, 37, 39, 41, 44, 46, 49, 52, 55, 58, 62, 65, 69, 73, 78, 82, 87, 92, 98, 104, 110, 117, 123, 131, 139, 147, 156, 165, 175, 185, 196, 208, 220, 233, 247, 262, 277, 294, 311, 330, 349, 370, 392, 415, 440, 466, 494, 523, 554, 587, 622, 659, 698, 740, 784, 831, 880, 932, 988, 1047, 1109, 1175, 1245, 1319, 1397, 1480, 1568, 1661, 1760, 1865, 1976, 2093, 2217, 2349, 2489, 2637, 2794, 2960, 3136, 3322, 3520, 3729, 3951, 4186, 4435, 4699, 4978, 5274, 5588, 5920, 5920, 6645, 7040, 7459, 7902, 8372, 8870, 9397, 9956, 10548, 11175, 11840, 12544 };
 
+
+// LiquidCrystal lcd(13, 12, 1, 2, 8, 11);
+
 LiquidCrystal lcd(MY_LCD_RS, MY_LCD_E,
     MY_LCD_D4, MY_LCD_D5, MY_LCD_D6, MY_LCD_D7);
 
-#define DEBOUNCE_DELAY 150
+#define DEBOUNCE_DELAY 50
 
-unsigned int sustain = 50;
+unsigned int sustain = 500;
 
 bool dirty_editor = true;
 bool dirty_player = true;
@@ -84,6 +94,34 @@ Sequencer s = { 0, 8, 0, 0,
 };
 
 typedef struct {
+	unsigned int attack;
+	unsigned int sustain;
+	unsigned int decay;
+	unsigned int release;
+	byte attack_level;
+	byte decay_level;
+} SynthADSRWithLevels;
+
+SynthADSRWithLevels asdr = { 10, 300, 50, 30, 255, 127 };
+
+#define KEYMODE_PIANO 1
+#define KEYMODE_CHEATS 2
+#define KEYMODE_WAVE 4
+typedef struct {
+	bool up;
+	bool down;
+	bool playpause;
+	bool mark;
+	bool rub;
+	unsigned int mode;
+	unsigned int pot;
+	bool notes[12];
+} KeyboardState;
+
+KeyboardState k = { false, false, false, false, false, KEYMODE_PIANO, 0 , {false, false, false, false, false, false, false, false, false, false, false, false } };
+KeyboardState last_k = { false, false, false, false, false, KEYMODE_PIANO, 0 ,{ false, false, false, false, false, false, false, false, false, false, false, false } };
+
+typedef struct {
     bool shifty_octaves;
     bool show_bpm;
 } CheatCodeFlags;
@@ -101,7 +139,9 @@ unsigned int volume = 0;
 #define PLAYMODE_DAC 2
 #define PLAYMODE_TTL 4
 #define PLAYMODE_DAC_PIN DAC0
-int playmode = PLAYMODE_MIDI;
+int playmode = PLAYMODE_TTL;
+
+int cheatcode_lcd_delay = 500;
 
 #define DEBUG_DAC_PIN DAC1
 
@@ -111,58 +151,96 @@ bool display_numbers = false;
 
 unsigned long last_button_press_in_millis = 0;
 unsigned long last_tone_play_in_millis = 0;
+unsigned long last_button_repeat_in_millis = 0;
 
-void verifyCheatcodes() {
+void verifyCheatcodes(int lcd_delay) {
     lcd.setCursor(0, 0);
-    if (LOW == digitalRead(MARK_PIN)) {
+    if (LOW == k.mark) {
         s.max = 16;
-        lcd.print("WIDE");
-        delay(500);
+		if (lcd_delay) {
+			lcd.print("WIDE");
+			delay(lcd_delay);
+		}
     }
 
-    if (LOW == digitalRead(RUB_PIN)) {
-        lcd.print("SHH!");
+    if (LOW == k.rub) {
         // midi all off
         midiEventPacket_t noteOn = { 0b10110000, 0b10110000 | 0, 123 };
-        delay(500);
+		if (lcd_delay) {
+			lcd.print("SHH!");
+			delay(lcd_delay);
+		}
     }
 
-    if (LOW == digitalRead(NOTE_UP_PIN)) {
-        lcd.print("LONG");
+    if (LOW == k.up) {
         max_sustain = 4000;
-        delay(500);
+		if (lcd_delay) {
+			lcd.print("LONG");
+			delay(lcd_delay);
+		}
     }
 
-    if (LOW == digitalRead(PLAY_PIN)) {
-        lcd.print("NUM!");
+    if (LOW == k.playpause) {
         display_numbers = true;
-        delay(500);
+		if (lcd_delay) {
+			lcd.print("NUM!");
+			delay(lcd_delay);
+		}
     }
 
     lcd.setCursor(0, 1);
     if (LOW == digitalRead(NOTE_D_PIN)) {
         playmode = PLAYMODE_TTL;
-        lcd.print("TTL!");
-        delay(500);
+		if (lcd_delay) {
+			lcd.print("TTL!");
+			delay(lcd_delay);
+		}
     }
 
     if (LOW == digitalRead(NOTE_C_PIN)) {
         config.shifty_octaves = true;
-        lcd.print("SHFT");
-        delay(500);
+		if (lcd_delay) {
+			lcd.print("SHFT");
+			delay(lcd_delay);
+		}
     }
 
     if (LOW == digitalRead(NOTE_E_PIN)) {
         config.show_bpm = true;
-        lcd.print("BPM!");
-        delay(500);
+		if (lcd_delay) {
+			lcd.print("BPM!");
+			delay(lcd_delay);
+		}
     }
+
+	if (LOW == digitalRead(NOTE_F_PIN)) {
+		Serial1.print('L');
+		if (lcd_delay) {
+			lcd.print("SQUR");
+			delay(lcd_delay);
+		}
+	}
+
+	if (LOW == digitalRead(NOTE_G_PIN)) {
+		Serial1.print('N');
+		if (lcd_delay) {
+			lcd.print("SAW!");
+			delay(lcd_delay);
+		}
+	}
+
+	if (LOW == digitalRead(NOTE_A_PIN)) {
+		Serial1.print('S');
+		if (lcd_delay) {
+			lcd.print("SIN!");
+			delay(lcd_delay);
+		}
+	}
 }
 
 void setup() {
     lcd.begin(16, 2);
-    lcd.print("Good morning!");
-    delay(500);
+
 
     pinMode(NOTE_DOWN_PIN, INPUT_PULLUP);
     pinMode(NOTE_UP_PIN, INPUT_PULLUP);
@@ -175,18 +253,32 @@ void setup() {
     for (int i = 0; i < 12; i++) {
         pinMode(NOTE_PINS[i], INPUT_PULLUP);
     }
+	
+	for (int i = 0; i < 5; i++) {
+		pinMode(LED_PINS[i], OUTPUT);
+	}
 
-    last_button_press_in_millis = millis();
-    last_tone_play_in_millis = millis();
+	digitalWrite(MODE_LED_E, HIGH);
+
+    last_button_press_in_millis = 0;
+    last_tone_play_in_millis = 0;
 
     volume = 10;
 
-    Serial.begin(9600);
+    Serial1.begin(9600);
+
+	analogReadResolution(12);
+	
+	lcd.print("Good morning!");
+	delay(500);
 
     /* cheatcodes, bruh */
-    verifyCheatcodes();
+	k.mode = KEYMODE_CHEATS;
+	readKeys();
+	k.mode = KEYMODE_PIANO;
     lcd.clear();
-    analogWrite(DEBUG_DAC_PIN, 1023);
+    
+	cheatcode_lcd_delay = 0;
 }
 
 // https://github.com/arduino-libraries/MIDIUSB/blob/master/examples/MIDIUSB_write/MIDIUSB_write.ino#L11
@@ -237,9 +329,36 @@ void makeNoise() {
             analogWrite(PLAYMODE_DAC_PIN, map(scale[s.notes[s.play_position]], 0, 127, 0, 255));
             break;
         case PLAYMODE_TTL:
-            Serial.print(midi_note_to_frequency[scale[s.notes[s.play_position]]]);
-            Serial.print('\n');
-            delay(2);
+            Serial1.print(midi_note_to_frequency[scale[s.notes[s.play_position]]]);
+            Serial1.print('\n');
+			Serial1.flush();
+			Serial1.print(asdr.release);
+			Serial1.print('r');
+			Serial1.flush();
+			Serial1.print(asdr.sustain);
+			Serial1.print('s');
+			Serial1.flush();
+
+			Serial1.print(asdr.decay);
+			Serial1.print('d');
+			Serial1.flush();
+
+			Serial1.print(asdr.decay_level);
+			Serial1.print('D');
+
+			Serial1.flush();
+
+			Serial1.print(asdr.attack);
+			Serial1.print('a');
+
+			Serial1.flush();
+
+			Serial1.print(asdr.attack_level);
+			Serial1.print('A');
+
+
+			Serial1.flush();
+			delay(2);
             break;
         default:;
         }
@@ -262,51 +381,106 @@ void shiftSequencerPosition(int direction) {
     dirty_editor = true;
 }
 
-void shiftSequenceNote(int direction) {
-  s.notes[s.position] = s.notes[s.position] + direction;
-  if (s.notes[s.position] < 0) {
-    s.notes[s.position] = scale_max_size + direction;
-  } else if (s.notes[s.position] >= scale_max_size) { 
-    s.notes[s.position] = 0;
-  }
-  dirty_editor = true;
+void readKeys() {
+	if (millis() < last_button_press_in_millis + DEBOUNCE_DELAY) { return; }
+	last_k = k;
+
+	updateKeyboardStruct();
+
+	switch (k.mode) {
+	case KEYMODE_PIANO:
+		oldReadKeys();
+		break;
+	case KEYMODE_CHEATS:
+		verifyCheatcodes(cheatcode_lcd_delay);
+		break;
+	default:
+		oldReadKeys();
+	}
+
+	last_button_press_in_millis = millis();
 }
 
-static void readKeys() {
-    if (millis() < last_button_press_in_millis + DEBOUNCE_DELAY) { return; }
+void updateKeyboardStruct() {
+	k.down = digitalRead(NOTE_DOWN_PIN);
+	k.up = digitalRead(NOTE_UP_PIN);
+	k.mark = digitalRead(MARK_PIN);
+	k.rub = digitalRead(RUB_PIN);
+	k.playpause = digitalRead(PLAY_PIN);
+	k.pot = analogRead(A0);
 
-    if (LOW == digitalRead(MARK_PIN)) {
+	for (int i = 0; i < 12; i++) {
+		k.notes[i] = digitalRead(NOTE_PINS[i]);
+	}
+}
+
+bool changed(int a, int b) {
+	if (millis() > last_button_repeat_in_millis + (DEBOUNCE_DELAY * 5) ) {
+		last_button_repeat_in_millis = millis();
+		return true;
+	}
+	return a != b;
+}
+
+static void oldReadKeys() {
+	if (LOW == k.rub && LOW == k.down) {
+		lcd.setCursor(0, 0);
+		lcd.clear();
+		lcd.print("Cheats in 1s");
+		delay(1000);
+		updateKeyboardStruct();
+		verifyCheatcodes(500);
+		lcd.clear();
+		dirty_player = true;
+		dirty_editor = true;
+		return;
+	}
+
+	if (LOW == k.mark && changed(k.mark, last_k.mark)) {
         if (config.shifty_octaves) {
             scale_offset = 12;
         } else {
-            shiftSequenceNote(-1);
+            s.notes[s.position] = s.notes[s.position] - 1;
+            if (s.notes[s.position] < 0) { s.notes[s.position] = scale_max_size - 1; }
+            dirty_editor = true;
         }
     }
     else {
         if (config.shifty_octaves) scale_offset = 0;
     }
 
-    if (LOW == digitalRead(RUB_PIN)) {
-        shiftSequenceNote(1);
-    }
-
-    if (LOW == digitalRead(NOTE_DOWN_PIN)) {
+	if (PLAYMODE_TTL == playmode) {
+		if (LOW == k.rub) {
+			asdr.sustain = map(k.pot, 0, 4095, max_sustain, 1);
+		} else {
+			sustain = map(k.pot, 0, 4095, max_sustain, 40);
+		}
+	}
+	else { 
+		if (LOW == k.rub && changed(k.rub, last_k.rub)) {
+			s.notes[s.position] = s.notes[s.position] + 1;
+			if (s.notes[s.position] >= scale_max_size) { s.notes[s.position] = 0; }
+			dirty_editor = true;
+		}
+	}
+    if (LOW == k.down && changed(k.down, last_k.down)) {
         shiftSequencerPosition(-1);
     }
 
-    if (LOW == digitalRead(NOTE_UP_PIN)) {
+    if (LOW == k.up && changed(k.up, last_k.up)) {
         shiftSequencerPosition(1);
     }
 
     for (int i = 0; i < 12; i++) {
-        if (LOW == digitalRead(NOTE_PINS[i])) {
+        if (LOW == k.notes[i] && changed(k.notes[i], last_k.notes[i])) {
             s.notes[s.position] = i + 1 + scale_offset;
             digitalWrite(LED_BUILTIN, HIGH);
             shiftSequencerPosition(1);
         }
     }
 
-    sustain = map(analogRead(SUSTAIN_APIN), 0, 1023, max_sustain, 40);
+	//sustain = max_sustain;
+    
 
     if (LOW == digitalRead(PLAY_PIN)) {
         playing = !playing;
@@ -321,7 +495,7 @@ static void readKeys() {
         }
     }
 
-    last_button_press_in_millis = millis();
+
 }
 
 void drawEditor() {
