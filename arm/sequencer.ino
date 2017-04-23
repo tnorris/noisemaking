@@ -39,6 +39,7 @@ int NOTE_PINS[] = { NOTE_C_PIN, NOTE_CS_PIN, NOTE_D_PIN, NOTE_DS_PIN, NOTE_E_PIN
 #define MY_LCD_D5 11
 #define MY_LCD_D4 10
 
+#define MODE_PIN 24
 #define MODE_LED_A 52
 #define MODE_LED_B 50
 #define MODE_LED_C 48
@@ -100,13 +101,14 @@ typedef struct {
 	unsigned int release;
 	byte attack_level;
 	byte decay_level;
-} SynthADSRWithLevels;
+} SynthASDRWithLevels;
 
-SynthADSRWithLevels asdr = { 10, 300, 50, 30, 255, 127 };
+SynthASDRWithLevels asdr = { 10, 300, 50, 30, 255, 127 };
 
 #define KEYMODE_PIANO 1
 #define KEYMODE_CHEATS 2
 #define KEYMODE_WAVE 4
+#define KEYMODE_ASDR 8
 typedef struct {
 	bool up;
 	bool down;
@@ -116,10 +118,11 @@ typedef struct {
 	unsigned int mode;
 	unsigned int pot;
 	bool notes[12];
+	bool menu;
 } KeyboardState;
 
-KeyboardState k = { false, false, false, false, false, KEYMODE_PIANO, 0 , {false, false, false, false, false, false, false, false, false, false, false, false } };
-KeyboardState last_k = { false, false, false, false, false, KEYMODE_PIANO, 0 ,{ false, false, false, false, false, false, false, false, false, false, false, false } };
+KeyboardState k = { false, false, false, false, false, KEYMODE_PIANO, 0 , {false, false, false, false, false, false, false, false, false, false, false, false }, false };
+KeyboardState last_k = { false, false, false, false, false, KEYMODE_PIANO, 0 ,{ false, false, false, false, false, false, false, false, false, false, false, false }, false };
 
 typedef struct {
     bool shifty_octaves;
@@ -141,7 +144,6 @@ unsigned int volume = 0;
 #define PLAYMODE_DAC_PIN DAC0
 int playmode = PLAYMODE_TTL;
 
-int cheatcode_lcd_delay = 500;
 
 #define DEBUG_DAC_PIN DAC1
 
@@ -247,6 +249,7 @@ void setup() {
     pinMode(PLAY_PIN, INPUT_PULLUP);
     pinMode(MARK_PIN, INPUT_PULLUP);
     pinMode(RUB_PIN, INPUT_PULLUP);
+	pinMode(MODE_PIN, INPUT_PULLUP);
 
     pinMode(LED_BUILTIN, OUTPUT);
 
@@ -272,13 +275,11 @@ void setup() {
 	lcd.print("Good morning!");
 	delay(500);
 
+	lcd.clear();
+
     /* cheatcodes, bruh */
-	k.mode = KEYMODE_CHEATS;
-	readKeys();
-	k.mode = KEYMODE_PIANO;
-    lcd.clear();
-    
-	cheatcode_lcd_delay = 0;
+	updateKeyboardStruct();
+	verifyCheatcodes(500);
 }
 
 // https://github.com/arduino-libraries/MIDIUSB/blob/master/examples/MIDIUSB_write/MIDIUSB_write.ino#L11
@@ -385,20 +386,74 @@ void readKeys() {
 	if (millis() < last_button_press_in_millis + DEBOUNCE_DELAY) { return; }
 	last_k = k;
 
+	//lcd.print(k.mode);
+	digitalWrite(MODE_LED_B, k.menu);
 	updateKeyboardStruct();
+	if (LOW == k.menu && changed(k.menu, last_k.menu)) {
+		switch (k.mode) {
+		case KEYMODE_PIANO:
+			k.mode = KEYMODE_ASDR;
+			break;
+		case KEYMODE_ASDR:
+			k.mode = KEYMODE_PIANO;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (LOW == k.rub && LOW == k.down && LOW == k.playpause) {
+		lcd.setCursor(0, 0);
+		lcd.clear();
+		lcd.print("Cheats in 1s");
+		delay(1000);
+		updateKeyboardStruct();
+		verifyCheatcodes(500);
+		lcd.clear();
+		dirty_player = true;
+		dirty_editor = true;
+		return;
+	}
+
 
 	switch (k.mode) {
 	case KEYMODE_PIANO:
+		digitalWrite(MODE_LED_C, HIGH);
 		oldReadKeys();
 		break;
-	case KEYMODE_CHEATS:
-		verifyCheatcodes(cheatcode_lcd_delay);
+	case KEYMODE_WAVE:
+		digitalWrite(MODE_LED_D, HIGH);
+		break;
+	case KEYMODE_ASDR:
+		digitalWrite(MODE_LED_E, HIGH);
+		asdrAssign();
 		break;
 	default:
-		oldReadKeys();
+		digitalWrite(MODE_LED_E, LOW);
+
+		digitalWrite(MODE_LED_D, LOW);
+		digitalWrite(MODE_LED_C, LOW);
 	}
 
 	last_button_press_in_millis = millis();
+}
+
+void asdrAssign() {
+	/*
+	typedef struct {
+		unsigned int attack;
+		unsigned int sustain;
+		unsigned int decay;
+		unsigned int release;
+		byte attack_level;
+		byte decay_level;
+	} SynthADSRWithLevels;
+	*/	
+	unsigned int new_val = map(k.pot, 0, 4095, max_sustain, 1);
+	if (LOW == k.down) asdr.attack = new_val;
+	if (LOW == k.up) asdr.sustain = new_val;
+	if (LOW == k.mark) asdr.decay = new_val;
+	if (LOW == k.rub) asdr.release = new_val;
 }
 
 void updateKeyboardStruct() {
@@ -408,6 +463,8 @@ void updateKeyboardStruct() {
 	k.rub = digitalRead(RUB_PIN);
 	k.playpause = digitalRead(PLAY_PIN);
 	k.pot = analogRead(A0);
+
+	k.menu = digitalRead(MODE_PIN);
 
 	for (int i = 0; i < 12; i++) {
 		k.notes[i] = digitalRead(NOTE_PINS[i]);
@@ -423,19 +480,6 @@ bool changed(int a, int b) {
 }
 
 static void oldReadKeys() {
-	if (LOW == k.rub && LOW == k.down) {
-		lcd.setCursor(0, 0);
-		lcd.clear();
-		lcd.print("Cheats in 1s");
-		delay(1000);
-		updateKeyboardStruct();
-		verifyCheatcodes(500);
-		lcd.clear();
-		dirty_player = true;
-		dirty_editor = true;
-		return;
-	}
-
 	if (LOW == k.mark && changed(k.mark, last_k.mark)) {
         if (config.shifty_octaves) {
             scale_offset = 12;
@@ -449,20 +493,12 @@ static void oldReadKeys() {
         if (config.shifty_octaves) scale_offset = 0;
     }
 
-	if (PLAYMODE_TTL == playmode) {
-		if (LOW == k.rub) {
-			asdr.sustain = map(k.pot, 0, 4095, max_sustain, 1);
-		} else {
-			sustain = map(k.pot, 0, 4095, max_sustain, 40);
-		}
+	if (LOW == k.rub && changed(k.rub, last_k.rub)) {
+		s.notes[s.position] = s.notes[s.position] + 1;
+		if (s.notes[s.position] >= scale_max_size) { s.notes[s.position] = 0; }
+		dirty_editor = true;
 	}
-	else { 
-		if (LOW == k.rub && changed(k.rub, last_k.rub)) {
-			s.notes[s.position] = s.notes[s.position] + 1;
-			if (s.notes[s.position] >= scale_max_size) { s.notes[s.position] = 0; }
-			dirty_editor = true;
-		}
-	}
+
     if (LOW == k.down && changed(k.down, last_k.down)) {
         shiftSequencerPosition(-1);
     }
@@ -478,9 +514,7 @@ static void oldReadKeys() {
             shiftSequencerPosition(1);
         }
     }
-
-	//sustain = max_sustain;
-    
+	sustain = map(k.pot, 0, 4095, max_sustain, 1);
 
     if (LOW == digitalRead(PLAY_PIN)) {
         playing = !playing;
