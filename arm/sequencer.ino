@@ -389,32 +389,9 @@ void readKeys() {
 	//lcd.print(k.mode);
 	digitalWrite(MODE_LED_B, k.menu);
 	updateKeyboardStruct();
-	if (LOW == k.menu && changed(k.menu, last_k.menu)) {
-		switch (k.mode) {
-		case KEYMODE_PIANO:
-			k.mode = KEYMODE_ASDR;
-			break;
-		case KEYMODE_ASDR:
-			k.mode = KEYMODE_PIANO;
-			break;
-		default:
-			break;
-		}
-	}
-
-	if (LOW == k.rub && LOW == k.down && LOW == k.playpause) {
-		lcd.setCursor(0, 0);
-		lcd.clear();
-		lcd.print("Cheats in 1s");
-		delay(1000);
-		updateKeyboardStruct();
-		verifyCheatcodes(500);
-		lcd.clear();
-		dirty_player = true;
-		dirty_editor = true;
-		return;
-	}
-
+	setKeyboardMode();
+	
+	if (LOW == k.rub && LOW == k.down && LOW == k.playpause) ctrlAltDel();
 
 	switch (k.mode) {
 	case KEYMODE_PIANO:
@@ -436,6 +413,34 @@ void readKeys() {
 	}
 
 	last_button_press_in_millis = millis();
+}
+
+void setKeyboardMode() {
+	if (LOW == k.menu && changed(k.menu, last_k.menu)) {
+		switch (k.mode) {
+		case KEYMODE_PIANO:
+			k.mode = KEYMODE_ASDR;
+			break;
+		case KEYMODE_ASDR:
+			k.mode = KEYMODE_PIANO;
+			break;
+		default:
+			break;
+		}
+	}
+}
+
+void ctrlAltDel() {
+	lcd.setCursor(0, 0);
+	lcd.clear();
+	lcd.print("Cheats in 1s");
+	delay(1000);
+	updateKeyboardStruct();
+	verifyCheatcodes(500);
+	lcd.clear();
+	dirty_player = true;
+	dirty_editor = true;
+	return;
 }
 
 void asdrAssign() {
